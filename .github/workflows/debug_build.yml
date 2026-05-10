@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - 'github-releases/**'
+      - 'claude/**'
   pull_request:
     branches:
       - master

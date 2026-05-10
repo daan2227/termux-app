@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - android-10
+      - 'claude/**'
   pull_request:
     branches:
       - master
