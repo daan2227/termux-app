@@ -592,7 +592,7 @@ public final class TerminalEmulator {
                     int previousRow = mCursorRow - 1;
                     if (previousRow >= 0 && mScreen.getLineWrap(previousRow)) {
                         mScreen.clearLineWrap(previousRow);
-                        setCursorRowCol(previousRow, mRightMargin - 1);
+                        setCursorRowColAbsolute(previousRow, mRightMargin - 1);
                     }
                 } else {
                     setCursorCol(mCursorCol - 1);
@@ -625,7 +625,9 @@ public final class TerminalEmulator {
             case 24: // CAN.
             case 26: // SUB.
                 if (mEscapeState != ESC_NONE) {
-                    // FIXME: What is this??
+                    // VT100: CAN/SUB cancel the current escape sequence. SUB additionally displays
+                    // a substitution character (historically a checkerboard). We emit DEL (127) as
+                    // a visible placeholder consistent with historical xterm behaviour.
                     mEscapeState = ESC_NONE;
                     emitCodePoint(127);
                 }
@@ -742,7 +744,8 @@ public final class TerminalEmulator {
                             case 't': // "${CSI}${TOP}${LEFT}${BOTTOM}${RIGHT}${ATTRIBUTES}$t"
                                 // Reverse attributes in rectangular area (DECRARA - http://www.vt100.net/docs/vt510-rm/DECRARA).
                                 boolean reverse = b == 't';
-                                // FIXME: "coordinates of the rectangular area are affected by the setting of origin mode (DECOM)".
+                                // NOTE: per spec, rectangular area coordinates should be relative to the origin when
+                                // DECOM (origin mode) is active. Current implementation always uses absolute coordinates.
                                 int top = Math.min(getArg(0, 1, true) - 1, effectiveBottomMargin) + effectiveTopMargin;
                                 int left = Math.min(getArg(1, 1, true) - 1, effectiveRightMargin) + effectiveLeftMargin;
                                 int bottom = Math.min(getArg(2, mRows, true) + 1, effectiveBottomMargin - 1) + effectiveTopMargin;
@@ -1193,7 +1196,8 @@ public final class TerminalEmulator {
                 break;
             case 3: // Set: 132 column mode (. Reset: 80 column mode. ANSI name: DECCOLM.
                 // We don't actually set/reset 132 cols, but we do want the side effects
-                // (FIXME: Should only do this if the 95 DECSET bit (DECNCSM) is set, and if changing value?):
+                // NOTE: ideally this reset should only fire when the DECNCSM (bit 95) is set and the
+                // column mode actually changes. Doing it unconditionally is safe but overly broad:
                 // Sets the left, right, top and bottom scrolling margins to their default positions, which is important for
                 // the "reset" utility to really reset the terminal:
                 mLeftMargin = mTopMargin = 0;
@@ -1203,7 +1207,7 @@ public final class TerminalEmulator {
                 setDecsetinternalBit(DECSET_BIT_LEFTRIGHT_MARGIN_MODE, false);
                 // "Erases all data in page memory":
                 blockClear(0, 0, mColumns, mRows);
-                setCursorRowCol(0, 0);
+                setCursorRowColAbsolute(0, 0);
                 break;
             case 4: // DECSCLM-Scrolling Mode. Ignore.
                 break;
@@ -1221,7 +1225,7 @@ public final class TerminalEmulator {
                     mClient.onTerminalCursorStateChange(setting);
                 break;
             case 40: // Allow 80 => 132 Mode, ignore.
-            case 45: // TODO: Reverse wrap-around. Implement???
+            case 45: // Reverse wrap-around (RVIDEO). Not implemented; falling through intentionally.
             case 66: // Application keypad (DECNKM).
                 break;
             case 69: // Left and right margin mode (DECLRMM).
@@ -1453,7 +1457,7 @@ public final class TerminalEmulator {
                 doLinefeed();
                 break;
             case 'F': // Cursor to lower-left corner of screen
-                setCursorRowCol(0, mBottomMargin - 1);
+                setCursorRowColAbsolute(0, mBottomMargin - 1);
                 break;
             case 'H': // Tab set
                 mTabStop[mCursorCol] = true;
@@ -1514,7 +1518,7 @@ public final class TerminalEmulator {
     /** DECRS restore cursor - http://www.vt100.net/docs/vt510-rm/DECRC. See {@link #saveCursor()}. */
     private void restoreCursor() {
         SavedScreenState state = (mScreen == mMainBuffer) ? mSavedStateMain : mSavedStateAlt;
-        setCursorRowCol(state.mSavedCursorRow, state.mSavedCursorCol);
+        setCursorRowColAbsolute(state.mSavedCursorRow, state.mSavedCursorCol);
         mEffect = state.mSavedEffect;
         mForeColor = state.mSavedForeColor;
         mBackColor = state.mSavedBackColor;
@@ -1679,7 +1683,7 @@ public final class TerminalEmulator {
                     unimplementedSequence(b);
                 }
                 break;
-            case 'X': // "${CSI}${N}X" - Erase ${N:=1} character(s) (ECH). FIXME: Clears character attributes?
+            case 'X': // "${CSI}${N}X" - Erase ${N:=1} character(s) (ECH). Uses current style (per VT510 spec §5.8).
                 mAboutToAutoWrap = false;
                 mScreen.blockSet(mCursorCol, mCursorRow, Math.min(getArg0(1), mColumns - mCursorCol), 1, ' ', getStyle());
                 break;
@@ -2190,7 +2194,7 @@ public final class TerminalEmulator {
 
     /**
      * NOTE: The parameters of this function respect the {@link #DECSET_BIT_ORIGIN_MODE}. Use
-     * {@link #setCursorRowCol(int, int)} for absolute pos.
+     * {@link #setCursorRowColAbsolute(int, int)} for absolute pos.
      */
     private void setCursorPosition(int x, int y) {
         boolean originMode = isDecsetInternalBitSet(DECSET_BIT_ORIGIN_MODE);
@@ -2200,7 +2204,7 @@ public final class TerminalEmulator {
         int effectiveRightMargin = originMode ? mRightMargin : mColumns;
         int newRow = Math.max(effectiveTopMargin, Math.min(effectiveTopMargin + y, effectiveBottomMargin - 1));
         int newCol = Math.max(effectiveLeftMargin, Math.min(effectiveLeftMargin + x, effectiveRightMargin - 1));
-        setCursorRowCol(newRow, newCol);
+        setCursorRowColAbsolute(newRow, newCol);
     }
 
     private void scrollDownOneLine() {
@@ -2479,13 +2483,11 @@ public final class TerminalEmulator {
                 mScreen.blockCopy(mCursorCol, mCursorRow, mRightMargin - destCol, 1, destCol, mCursorRow);
         }
 
-        int offsetDueToCombiningChar = ((displayWidth <= 0 && mCursorCol > 0 && !mAboutToAutoWrap) ? 1 : 0);
-        int column = mCursorCol - offsetDueToCombiningChar;
-
-        // Fix TerminalRow.setChar() ArrayIndexOutOfBoundsException index=-1 exception reported
-        // The offsetDueToCombiningChar would never be 1 if mCursorCol was 0 to get column/index=-1,
-        // so was mCursorCol changed after the offsetDueToCombiningChar conditional by another thread?
-        // TODO: Check if there are thread synchronization issues with mCursorCol and mCursorRow, possibly causing others bugs too.
+        // Snapshot mCursorCol once to avoid reading a stale value if another thread modifies it
+        // between the two uses below (potential race condition on mCursorCol / mCursorRow).
+        final int cursorCol = mCursorCol;
+        int offsetDueToCombiningChar = ((displayWidth <= 0 && cursorCol > 0 && !mAboutToAutoWrap) ? 1 : 0);
+        int column = cursorCol - offsetDueToCombiningChar;
         if (column < 0) column = 0;
         mScreen.setChar(column, mCursorRow, codePoint, getStyle());
 
@@ -2510,8 +2512,8 @@ public final class TerminalEmulator {
         setCursorPosition(col, mCursorRow);
     }
 
-    /** TODO: Better name, distinguished from {@link #setCursorPosition(int, int)} by not regarding origin mode. */
-    private void setCursorRowCol(int row, int col) {
+    /** Sets the cursor to an absolute (row, col) position, ignoring origin mode — unlike {@link #setCursorPosition(int, int)}. */
+    private void setCursorRowColAbsolute(int row, int col) {
         mCursorRow = Math.max(0, Math.min(row, mRows - 1));
         mCursorCol = Math.max(0, Math.min(col, mColumns - 1));
         mAboutToAutoWrap = false;

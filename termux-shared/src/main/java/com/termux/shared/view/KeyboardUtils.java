@@ -12,6 +12,8 @@ import android.view.inputmethod.InputMethodManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.termux.shared.logger.Logger;
@@ -105,12 +107,27 @@ public class KeyboardUtils {
     }
 
     public static void setSoftInputModeAdjustResize(final Activity activity) {
-        // TODO: The flag is deprecated for API 30 and WindowInset API should be used
-        // https://developer.android.com/reference/android/view/WindowManager.LayoutParams#SOFT_INPUT_ADJUST_RESIZE
-        // https://medium.com/androiddevelopers/animating-your-keyboard-fb776a8fb66d
-        // https://stackoverflow.com/a/65194077/14686958
-        if (activity != null && activity.getWindow() != null)
-            activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        if (activity == null || activity.getWindow() == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // SOFT_INPUT_ADJUST_RESIZE is deprecated for API 30+. Use edge-to-edge mode with
+            // a WindowInsets listener so the view hierarchy adjusts to the IME inset.
+            // https://developer.android.com/reference/android/view/WindowManager.LayoutParams#SOFT_INPUT_ADJUST_RESIZE
+            WindowCompat.setDecorFitsSystemWindows(activity.getWindow(), false);
+            ViewCompat.setOnApplyWindowInsetsListener(activity.getWindow().getDecorView(), (v, insets) -> {
+                int imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+                int navBottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
+                v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(),
+                    Math.max(imeBottom, navBottom));
+                return insets;
+            });
+        } else {
+            setSoftInputModeAdjustResizeLegacy(activity);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void setSoftInputModeAdjustResizeLegacy(final Activity activity) {
+        activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
     }
 
     /**

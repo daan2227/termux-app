@@ -1481,20 +1481,24 @@ public class FileUtils {
             }
 
             // TODO: Use FileAttributes with support for atime (default), mtime, ctime. Add regex for ignoring file and dir absolute paths.
-            // FIXME: iterateFiles() does not return subdirectories even with TrueFileFilter for file and dir.
-            // FIXME: Empty directories remain
 
-            // If directory exists, delete its contents
+            // If directory exists, delete its contents older than the threshold
             Calendar calendar = Calendar.getInstance();
             calendar.add(Calendar.DATE, -(days));
-            // AgeFileFilter seems to apply to symlink destination timestamp instead of symlink file itself
+            // AgeFileFilter applies to symlink destination timestamp instead of symlink file itself
+            AgeFileFilter ageFilter = new AgeFileFilter(calendar.getTime());
             Iterator<File> filesToDelete =
-                org.apache.commons.io.FileUtils.iterateFiles(file, new AgeFileFilter(calendar.getTime()), dirFilter);
+                org.apache.commons.io.FileUtils.iterateFiles(file, ageFilter, dirFilter);
             while (filesToDelete.hasNext()) {
                 File subFile = filesToDelete.next();
                 error = deleteFile(label + " directory sub", subFile.getAbsolutePath(), true, true, allowedFileTypeFlags);
                 if (error != null)
                     return error;
+            }
+
+            // Remove empty subdirectories left behind after file deletion (bottom-up traversal)
+            if (dirFilter != null) {
+                deleteEmptySubDirectories(file);
             }
         } catch (Exception e) {
             return FileUtilsErrno.ERRNO_DELETING_FILES_OLDER_THAN_X_DAYS_FAILED_WITH_EXCEPTION.getError(e, label + "directory", filePath, days, e.getMessage());
@@ -1502,6 +1506,26 @@ public class FileUtils {
 
         return null;
 
+    }
+
+    /**
+     * Recursively removes empty subdirectories under {@code directory} in a bottom-up traversal,
+     * so that directories emptied by prior file deletion are also cleaned up.
+     */
+    private static void deleteEmptySubDirectories(final File directory) {
+        File[] children = directory.listFiles();
+        if (children == null) return;
+        for (File child : children) {
+            if (child.isDirectory()) {
+                deleteEmptySubDirectories(child);
+                File[] remaining = child.listFiles();
+                if (remaining != null && remaining.length == 0) {
+                    if (!child.delete()) {
+                        Logger.logWarn(LOG_TAG, "Could not delete empty directory: " + child.getAbsolutePath());
+                    }
+                }
+            }
+        }
     }
 
 

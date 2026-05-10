@@ -207,8 +207,8 @@ public final class TerminalRow {
         int newCharactersUsedForColumn = Character.charCount(codePoint);
         if (newIsCombining) {
             // Combining characters are added to the contents of the column instead of overwriting them, so that they
-            // modify the existing contents.
-            // FIXME: Unassigned characters also get width=0.
+            // modify the existing contents. Note: Unicode "unassigned" code points also have width=0 per WcWidth and
+            // are therefore treated as combining characters here — a known limitation of the width heuristic.
             newCharactersUsedForColumn += oldCharactersUsedForColumn;
         }
 
