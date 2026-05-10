@@ -139,8 +139,11 @@ public final class AppShell {
         if (isSynchronous) {
             try {
                 appShell.executeInner(currentPackageContext);
-            } catch (IllegalThreadStateException | InterruptedException e) {
-                // TODO: Should either of these be handled or returned?
+            } catch (IllegalThreadStateException e) {
+                Logger.logStackTraceWithMessage(LOG_TAG, "IllegalThreadStateException in synchronous AppShell", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                Logger.logStackTraceWithMessage(LOG_TAG, "AppShell interrupted", e);
             }
         } else {
             new Thread() {
@@ -148,8 +151,11 @@ public final class AppShell {
                 public void run() {
                     try {
                         appShell.executeInner(currentPackageContext);
-                    } catch (IllegalThreadStateException | InterruptedException e) {
-                        // TODO: Should either of these be handled or returned?
+                    } catch (IllegalThreadStateException e) {
+                        Logger.logStackTraceWithMessage(LOG_TAG, "IllegalThreadStateException in async AppShell", e);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        Logger.logStackTraceWithMessage(LOG_TAG, "AppShell thread interrupted", e);
                     }
                 }
             }.start();
